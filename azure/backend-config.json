@@ -1,0 +1,75 @@
+{
+  "webApp": {
+    "name": "wine-quality-backend",
+    "resourceGroup": "wine-quality-rg",
+    "location": "eastus",
+    "appServicePlan": "wine-quality-plan",
+    "containerImage": "winequalityacr.azurecr.io/wine-backend:latest",
+    "registryUrl": "https://winequalityacr.azurecr.io",
+    "registryUsername": "winequalityacr",
+    "port": 8000
+  },
+  "appSettings": {
+    "WEBSITES_PORT": "8000",
+    "ENVIRONMENT": "production",
+    "LOG_LEVEL": "INFO",
+    "PYTHONUNBUFFERED": "1",
+    "GEMINI_API_KEY": "your_gemini_api_key_here",
+    "APPINSIGHTS_INSTRUMENTATIONKEY": "your_app_insights_key",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "InstrumentationKey=your_app_insights_key"
+  },
+  "scaling": {
+    "minInstances": 1,
+    "maxInstances": 3,
+    "scaleOutRules": [
+      {
+        "metricName": "CpuPercentage",
+        "threshold": 70,
+        "duration": "PT5M",
+        "scaleAction": "increase"
+      }
+    ],
+    "scaleInRules": [
+      {
+        "metricName": "CpuPercentage",
+        "threshold": 30,
+        "duration": "PT10M",
+        "scaleAction": "decrease"
+      }
+    ]
+  },
+  "healthCheck": {
+    "enabled": true,
+    "path": "/api/v1/prediction/health",
+    "interval": "PT30S",
+    "timeout": "PT10S",
+    "retries": 3
+  },
+  "deployment": {
+    "continuousDeployment": true,
+    "autoSwap": false,
+    "deploymentSlot": "production"
+  },
+  "security": {
+    "httpsOnly": true,
+    "alwaysOn": true,
+    "clientAffinityEnabled": false,
+    "minTlsVersion": "1.2"
+  },
+  "monitoring": {
+    "applicationInsights": {
+      "enabled": true,
+      "name": "wine-quality-backend-insights",
+      "location": "eastus"
+    },
+    "logLevel": "Information",
+    "retentionDays": 30
+  },
+  "customDomains": [],
+  "tags": {
+    "project": "wine-quality-prediction",
+    "environment": "production",
+    "component": "backend",
+    "version": "1.0.0"
+  }
+}

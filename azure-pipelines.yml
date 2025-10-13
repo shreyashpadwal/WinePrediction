@@ -1,0 +1,418 @@
+# Azure DevOps CI/CD Pipeline for Wine Quality Prediction
+# This pipeline builds, tests, and deploys the application to Azure
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - backend/*
+      - frontend/*
+      - notebooks/*
+      - azure/*
+
+variables:
+  # Build configuration
+  buildConfiguration: 'Release'
+  nodeVersion: '18.x'
+  pythonVersion: '3.10'
+  
+  # Azure configuration
+  azureSubscription: 'Azure Service Connection'
+  resourceGroupName: 'wine-quality-rg'
+  acrName: 'winequalityacr'
+  backendAppName: 'wine-quality-backend'
+  frontendAppName: 'wine-quality-frontend'
+  
+  # Docker configuration
+  dockerRegistryServiceConnection: 'ACR Service Connection'
+  imageRepository: 'wine-quality'
+  containerRegistry: 'winequalityacr.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)'
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Test
+  displayName: 'Test Stage'
+  jobs:
+  - job: BackendTests
+    displayName: 'Backend Tests'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        displayName: 'Use Python $(pythonVersion)'
+    
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+      displayName: 'Install dependencies'
+    
+    - script: |
+        cd backend
+        pytest tests/ -v --cov=app --cov-report=xml --cov-report=html
+      displayName: 'Run backend tests'
+      continueOnError: false
+    
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFiles: 'backend/test-results.xml'
+        testRunTitle: 'Backend Tests'
+      condition: succeededOrFailed()
+    
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: 'backend/coverage.xml'
+        reportDirectory: 'backend/htmlcov'
+      condition: succeededOrFailed()
+
+  - job: FrontendTests
+    displayName: 'Frontend Tests'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '$(nodeVersion)'
+        displayName: 'Use Node.js $(nodeVersion)'
+    
+    - script: |
+        cd frontend
+        npm ci
+      displayName: 'Install dependencies'
+    
+    - script: |
+        cd frontend
+        npm run test -- --coverage --watchAll=false
+      displayName: 'Run frontend tests'
+      continueOnError: false
+    
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFiles: 'frontend/test-results.xml'
+        testRunTitle: 'Frontend Tests'
+      condition: succeededOrFailed()
+    
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: 'frontend/coverage/cobertura-coverage.xml'
+        reportDirectory: 'frontend/coverage/lcov-report'
+      condition: succeededOrFailed()
+
+- stage: Build
+  displayName: 'Build Stage'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: BuildImages
+    displayName: 'Build Docker Images'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: Docker@2
+      displayName: 'Build backend image'
+      inputs:
+        command: 'build'
+        dockerfile: 'backend/Dockerfile'
+        arguments: '--no-cache'
+        tags: |
+          $(containerRegistry)/wine-backend:$(tag)
+          $(containerRegistry)/wine-backend:latest
+    
+    - task: Docker@2
+      displayName: 'Build frontend image'
+      inputs:
+        command: 'build'
+        dockerfile: 'frontend/Dockerfile'
+        arguments: '--no-cache'
+        tags: |
+          $(containerRegistry)/wine-frontend:$(tag)
+          $(containerRegistry)/wine-frontend:latest
+    
+    - task: Docker@2
+      displayName: 'Scan backend image for vulnerabilities'
+      inputs:
+        command: 'run'
+        arguments: '--rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(containerRegistry)/wine-backend:$(tag)'
+      continueOnError: true
+    
+    - task: Docker@2
+      displayName: 'Scan frontend image for vulnerabilities'
+      inputs:
+        command: 'run'
+        arguments: '--rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image $(containerRegistry)/wine-frontend:$(tag)'
+      continueOnError: true
+
+- stage: Push
+  displayName: 'Push to ACR'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: PushToACR
+    displayName: 'Push Images to ACR'
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: Docker@2
+            displayName: 'Login to ACR'
+            inputs:
+              command: 'login'
+              containerRegistry: '$(dockerRegistryServiceConnection)'
+          
+          - task: Docker@2
+            displayName: 'Push backend image'
+            inputs:
+              command: 'push'
+              containerRegistry: '$(dockerRegistryServiceConnection)'
+              repository: 'wine-backend'
+              tags: |
+                $(tag)
+                latest
+          
+          - task: Docker@2
+            displayName: 'Push frontend image'
+            inputs:
+              command: 'push'
+              containerRegistry: '$(dockerRegistryServiceConnection)'
+              repository: 'wine-frontend'
+              tags: |
+                $(tag)
+                latest
+
+- stage: Deploy
+  displayName: 'Deploy to Azure'
+  dependsOn: Push
+  condition: succeeded()
+  jobs:
+  - deployment: DeployBackend
+    displayName: 'Deploy Backend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy Backend to App Service'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              appName: '$(backendAppName)'
+              containers: '$(containerRegistry)/wine-backend:$(tag)'
+              configurationStrings: |
+                WEBSITES_PORT=8000
+                ENVIRONMENT=production
+                LOG_LEVEL=INFO
+                PYTHONUNBUFFERED=1
+          
+          - task: AzureCLI@2
+            displayName: 'Restart Backend App Service'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az webapp restart --name $(backendAppName) --resource-group $(resourceGroupName)
+          
+          - task: AzureCLI@2
+            displayName: 'Wait for Backend Health Check'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                BACKEND_URL="https://$(backendAppName).azurewebsites.net"
+                for i in {1..30}; do
+                  if curl -f "$BACKEND_URL/api/v1/prediction/health"; then
+                    echo "Backend health check passed"
+                    break
+                  fi
+                  echo "Waiting for backend... ($i/30)"
+                  sleep 10
+                done
+
+  - deployment: DeployFrontend
+    displayName: 'Deploy Frontend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureStaticWebApp@0
+            displayName: 'Deploy Frontend to Static Web Apps'
+            inputs:
+              app_location: '/frontend'
+              api_location: ''
+              output_location: 'dist'
+              azure_static_web_apps_api_token: '$(AZURE_STATIC_WEB_APPS_API_TOKEN)'
+              skip_app_build: false
+              build_command: 'npm run build'
+              build_environment: |
+                VITE_API_URL=https://$(backendAppName).azurewebsites.net/api/v1
+
+- stage: PostDeployment
+  displayName: 'Post-Deployment Tests'
+  dependsOn: Deploy
+  condition: succeeded()
+  jobs:
+  - job: SmokeTests
+    displayName: 'Smoke Tests'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Run Backend Smoke Tests'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          BACKEND_URL="https://$(backendAppName).azurewebsites.net"
+          
+          # Test health endpoint
+          echo "Testing health endpoint..."
+          curl -f "$BACKEND_URL/api/v1/prediction/health"
+          
+          # Test API documentation
+          echo "Testing API documentation..."
+          curl -f "$BACKEND_URL/docs"
+          
+          # Test prediction endpoint
+          echo "Testing prediction endpoint..."
+          SAMPLE_DATA='{
+            "fixed_acidity": 7.4,
+            "volatile_acidity": 0.7,
+            "citric_acid": 0.0,
+            "residual_sugar": 1.9,
+            "chlorides": 0.076,
+            "free_sulfur_dioxide": 11.0,
+            "total_sulfur_dioxide": 34.0,
+            "density": 0.9978,
+            "ph": 3.51,
+            "sulphates": 0.56,
+            "alcohol": 9.4
+          }'
+          
+          curl -X POST "$BACKEND_URL/api/v1/prediction/predict" \
+            -H "Content-Type: application/json" \
+            -d "$SAMPLE_DATA"
+    
+    - task: AzureCLI@2
+      displayName: 'Run Frontend Smoke Tests'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          FRONTEND_URL="https://$(frontendAppName).azurestaticapps.net"
+          
+          # Test frontend
+          echo "Testing frontend..."
+          curl -f "$FRONTEND_URL"
+          
+          # Test API proxy
+          echo "Testing API proxy..."
+          curl -f "$FRONTEND_URL/api/v1/prediction/health"
+
+- stage: Monitor
+  displayName: 'Monitor Deployment'
+  dependsOn: PostDeployment
+  condition: succeeded()
+  jobs:
+  - job: MonitorDeployment
+    displayName: 'Monitor for 5 minutes'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Monitor Backend for 5 minutes'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          BACKEND_URL="https://$(backendAppName).azurewebsites.net"
+          
+          for i in {1..30}; do
+            echo "Health check $i/30..."
+            if ! curl -f "$BACKEND_URL/api/v1/prediction/health"; then
+              echo "Health check failed at iteration $i"
+              exit 1
+            fi
+            sleep 10
+          done
+          
+          echo "All health checks passed!"
+
+- stage: Rollback
+  displayName: 'Rollback on Failure'
+  dependsOn: 
+    - Test
+    - Build
+    - Push
+    - Deploy
+    - PostDeployment
+    - Monitor
+  condition: failed()
+  jobs:
+  - job: RollbackDeployment
+    displayName: 'Rollback to Previous Version'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Rollback Backend'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Get previous image tag
+          PREVIOUS_TAG=$(az acr repository show-tags --name $(acrName) --repository wine-backend --orderby time_desc --query '[1].name' -o tsv)
+          
+          if [ ! -z "$PREVIOUS_TAG" ]; then
+            echo "Rolling back to: $PREVIOUS_TAG"
+            az webapp config container set \
+              --name $(backendAppName) \
+              --resource-group $(resourceGroupName) \
+              --docker-custom-image-name $(containerRegistry)/wine-backend:$PREVIOUS_TAG
+            
+            az webapp restart \
+              --name $(backendAppName) \
+              --resource-group $(resourceGroupName)
+            
+            echo "Rollback completed"
+          else
+            echo "No previous version found for rollback"
+          fi
+    
+    - task: AzureCLI@2
+      displayName: 'Send Rollback Notification'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Deployment failed and rollback initiated"
+          echo "Build ID: $(Build.BuildId)"
+          echo "Backend URL: https://$(backendAppName).azurewebsites.net"
+          echo "Frontend URL: https://$(frontendAppName).azurestaticapps.net"
+          # Add notification logic here (email, Slack, etc.)

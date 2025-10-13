@@ -1,0 +1,92 @@
+{
+  "best_model": "Random Forest",
+  "best_accuracy": 0.8860294117647058,
+  "all_results": [
+    {
+      "Model": "Random Forest",
+      "Accuracy": 0.8860294117647058,
+      "Precision": 0.8701067927170869,
+      "Recall": 0.8860294117647058,
+      "F1-Score": 0.8710230174421438
+    },
+    {
+      "Model": "Gradient Boosting",
+      "Accuracy": 0.8823529411764706,
+      "Precision": 0.8686353893784234,
+      "Recall": 0.8823529411764706,
+      "F1-Score": 0.8724322281449054
+    },
+    {
+      "Model": "XGBoost",
+      "Accuracy": 0.8823529411764706,
+      "Precision": 0.8669665875779332,
+      "Recall": 0.8823529411764706,
+      "F1-Score": 0.8703289580294928
+    },
+    {
+      "Model": "Support Vector Machine",
+      "Accuracy": 0.8823529411764706,
+      "Precision": 0.8647425706249235,
+      "Recall": 0.8823529411764706,
+      "F1-Score": 0.8569754703500834
+    },
+    {
+      "Model": "Random Forest (Tuned)",
+      "Accuracy": 0.8823529411764706,
+      "Precision": 0.8638985005767013,
+      "Recall": 0.8823529411764706,
+      "F1-Score": 0.8629674091858965
+    },
+    {
+      "Model": "Logistic Regression",
+      "Accuracy": 0.8786764705882353,
+      "Precision": 0.8586617389738047,
+      "Recall": 0.8786764705882353,
+      "F1-Score": 0.8600775893179358
+    },
+    {
+      "Model": "Gradient Boosting (Tuned)",
+      "Accuracy": 0.8786764705882353,
+      "Precision": 0.8631947738772928,
+      "Recall": 0.8786764705882353,
+      "F1-Score": 0.8673812718244818
+    },
+    {
+      "Model": "XGBoost (Tuned)",
+      "Accuracy": 0.875,
+      "Precision": 0.8556488332384746,
+      "Recall": 0.875,
+      "F1-Score": 0.8598162338583794
+    },
+    {
+      "Model": "Decision Tree",
+      "Accuracy": 0.8308823529411765,
+      "Precision": 0.8347129706950459,
+      "Recall": 0.8308823529411765,
+      "F1-Score": 0.8327462226456035
+    }
+  ],
+  "feature_names": [
+    "fixed acidity",
+    "volatile acidity",
+    "citric acid",
+    "residual sugar",
+    "chlorides",
+    "free sulfur dioxide",
+    "total sulfur dioxide",
+    "density",
+    "pH",
+    "sulphates",
+    "alcohol"
+  ],
+  "target_classes": [
+    "Bad",
+    "Good"
+  ],
+  "dataset_info": {
+    "total_samples": 1359,
+    "training_samples": 1087,
+    "test_samples": 272,
+    "features_count": 11
+  }
+}

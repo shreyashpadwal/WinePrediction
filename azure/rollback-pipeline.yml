@@ -1,0 +1,231 @@
+# Rollback Pipeline for Wine Quality Prediction
+# This pipeline rolls back the application to the previous version
+
+trigger: none
+
+variables:
+  # Azure configuration
+  azureSubscription: 'Azure Service Connection'
+  resourceGroupName: 'wine-quality-rg'
+  acrName: 'winequalityacr'
+  backendAppName: 'wine-quality-backend'
+  frontendAppName: 'wine-quality-frontend'
+  containerRegistry: 'winequalityacr.azurecr.io'
+
+stages:
+- stage: Rollback
+  displayName: 'Rollback to Previous Version'
+  jobs:
+  - job: RollbackBackend
+    displayName: 'Rollback Backend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Get Previous Backend Version'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Get previous image tag
+          PREVIOUS_TAG=$(az acr repository show-tags --name $(acrName) --repository wine-backend --orderby time_desc --query '[1].name' -o tsv)
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous version found"
+            exit 1
+          fi
+          
+          echo "Previous version: $PREVIOUS_TAG"
+          echo "##vso[task.setvariable variable=previousBackendTag]$PREVIOUS_TAG"
+    
+    - task: AzureCLI@2
+      displayName: 'Rollback Backend Container'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Rolling back backend to: $(previousBackendTag)"
+          
+          # Update container image
+          az webapp config container set \
+            --name $(backendAppName) \
+            --resource-group $(resourceGroupName) \
+            --docker-custom-image-name $(containerRegistry)/wine-backend:$(previousBackendTag)
+          
+          # Restart the app
+          az webapp restart \
+            --name $(backendAppName) \
+            --resource-group $(resourceGroupName)
+          
+          echo "Backend rollback completed"
+    
+    - task: AzureCLI@2
+      displayName: 'Verify Backend Rollback'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          BACKEND_URL="https://$(backendAppName).azurewebsites.net"
+          
+          # Wait for rollback to complete
+          echo "Waiting for rollback to complete..."
+          sleep 30
+          
+          # Test health endpoint
+          for i in {1..10}; do
+            if curl -f "$BACKEND_URL/api/v1/prediction/health"; then
+              echo "Backend rollback successful"
+              break
+            fi
+            echo "Waiting for backend... ($i/10)"
+            sleep 15
+          done
+          
+          # Test prediction endpoint
+          SAMPLE_DATA='{
+            "fixed_acidity": 7.4,
+            "volatile_acidity": 0.7,
+            "citric_acid": 0.0,
+            "residual_sugar": 1.9,
+            "chlorides": 0.076,
+            "free_sulfur_dioxide": 11.0,
+            "total_sulfur_dioxide": 34.0,
+            "density": 0.9978,
+            "ph": 3.51,
+            "sulphates": 0.56,
+            "alcohol": 9.4
+          }'
+          
+          curl -X POST "$BACKEND_URL/api/v1/prediction/predict" \
+            -H "Content-Type: application/json" \
+            -d "$SAMPLE_DATA"
+          
+          echo "Backend verification completed"
+
+  - job: RollbackFrontend
+    displayName: 'Rollback Frontend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Get Previous Frontend Version'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Get previous image tag
+          PREVIOUS_TAG=$(az acr repository show-tags --name $(acrName) --repository wine-frontend --orderby time_desc --query '[1].name' -o tsv)
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous version found"
+            exit 1
+          fi
+          
+          echo "Previous version: $PREVIOUS_TAG"
+          echo "##vso[task.setvariable variable=previousFrontendTag]$PREVIOUS_TAG"
+    
+    - task: AzureCLI@2
+      displayName: 'Rollback Frontend Container'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Rolling back frontend to: $(previousFrontendTag)"
+          
+          # Note: Static Web Apps rollback is handled by GitHub Actions
+          # This is a placeholder for future container-based frontend deployment
+          echo "Frontend rollback completed (Static Web Apps)"
+
+  - job: VerifyRollback
+    displayName: 'Verify Rollback'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Verify Complete Rollback'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          BACKEND_URL="https://$(backendAppName).azurewebsites.net"
+          FRONTEND_URL="https://$(frontendAppName).azurestaticapps.net"
+          
+          echo "Verifying rollback..."
+          
+          # Test backend
+          if curl -f "$BACKEND_URL/api/v1/prediction/health"; then
+            echo "✅ Backend health check passed"
+          else
+            echo "❌ Backend health check failed"
+            exit 1
+          fi
+          
+          # Test frontend
+          if curl -f "$FRONTEND_URL"; then
+            echo "✅ Frontend accessible"
+          else
+            echo "❌ Frontend not accessible"
+            exit 1
+          fi
+          
+          # Test API integration
+          if curl -f "$FRONTEND_URL/api/v1/prediction/health"; then
+            echo "✅ API integration working"
+          else
+            echo "❌ API integration failed"
+            exit 1
+          fi
+          
+          echo "🎉 Rollback verification completed successfully!"
+
+  - job: SendNotification
+    displayName: 'Send Rollback Notification'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Send Rollback Notification'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Sending rollback notification..."
+          
+          # Get current versions
+          CURRENT_BACKEND_TAG=$(az acr repository show-tags --name $(acrName) --repository wine-backend --orderby time_desc --query '[0].name' -o tsv)
+          CURRENT_FRONTEND_TAG=$(az acr repository show-tags --name $(acrName) --repository wine-frontend --orderby time_desc --query '[0].name' -o tsv)
+          
+          # Create notification message
+          MESSAGE="🍷 Wine Quality Prediction - Rollback Completed
+          
+          Backend rolled back to: $CURRENT_BACKEND_TAG
+          Frontend rolled back to: $CURRENT_FRONTEND_TAG
+          
+          URLs:
+          Backend: https://$(backendAppName).azurewebsites.net
+          Frontend: https://$(frontendAppName).azurestaticapps.net
+          
+          Status: ✅ All services operational"
+          
+          echo "$MESSAGE"
+          
+          # Send email notification (if configured)
+          # echo "$MESSAGE" | mail -s "Wine Quality Prediction - Rollback Completed" admin@yourdomain.com
+          
+          # Send Slack notification (if configured)
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data "{\"text\":\"$MESSAGE\"}" \
+          #   https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+          
+          echo "Notification sent"

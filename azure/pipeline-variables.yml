@@ -1,0 +1,61 @@
+# Azure DevOps Pipeline Variables
+# This file contains all pipeline variables for the Wine Quality Prediction project
+
+variables:
+  # Build Configuration
+  buildConfiguration: 'Release'
+  nodeVersion: '18.x'
+  pythonVersion: '3.10'
+  
+  # Azure Configuration
+  azureSubscription: 'Azure Service Connection'
+  resourceGroupName: 'wine-quality-rg'
+  acrName: 'winequalityacr'
+  backendAppName: 'wine-quality-backend'
+  frontendAppName: 'wine-quality-frontend'
+  
+  # Docker Configuration
+  dockerRegistryServiceConnection: 'ACR Service Connection'
+  imageRepository: 'wine-quality'
+  containerRegistry: 'winequalityacr.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)'
+  
+  # Environment Variables
+  environment: 'production'
+  logLevel: 'INFO'
+  websitesPort: '8000'
+  
+  # Security
+  enableSecurityScanning: true
+  enableDependencyScanning: true
+  
+  # Monitoring
+  enableApplicationInsights: true
+  enableHealthChecks: true
+  
+  # Deployment
+  enableAutoDeployment: true
+  enableRollback: true
+  healthCheckTimeout: '300'
+  healthCheckInterval: '30'
+  
+  # Notification
+  enableNotifications: true
+  notificationEmail: 'admin@yourdomain.com'
+  slackWebhookUrl: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+  
+  # Testing
+  enableUnitTests: true
+  enableIntegrationTests: true
+  enableSmokeTests: true
+  testTimeout: '600'
+  
+  # Performance
+  enablePerformanceTests: false
+  performanceTestDuration: '300'
+  maxResponseTime: '2000'
+  
+  # Cost Management
+  enableCostMonitoring: true
+  budgetLimit: '100'
+  costAlertThreshold: '80'

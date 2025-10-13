@@ -1,0 +1,54 @@
+# Datasets and model files
+*.csv
+*.pkl
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# Pip and tox
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+
+# Coverage reports
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Testing and mypy
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Environment variables
+.env
+
+# IDE / Editor configs
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+
+# Git folder (just in case)
+.git/
