@@ -1,33 +1,55 @@
+# ==========================
 # Datasets and model files
+# ==========================
 *.csv
 *.pkl
+*.h5
+*.pt
+*.joblib
+data/
+datasets/
+models/
+checkpoints/
 
+# ==========================
 # Logs and temporary files
+# ==========================
 logs/
 *.log
 *.tmp
 *.swp
 *.swo
 *~
+tmp/
 
+# ==========================
 # Python cache and bytecode
+# ==========================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 
+# ==========================
 # Virtual environments
+# ==========================
 env/
 venv/
 .venv/
+wineprediction_env/
+*.env
 
+# ==========================
 # Pip and tox
+# ==========================
 pip-log.txt
 pip-delete-this-directory.txt
 .tox/
 
+# ==========================
 # Coverage reports
+# ==========================
 .coverage
 .coverage.*
 .cache
@@ -35,20 +57,33 @@ nosetests.xml
 coverage.xml
 *.cover
 
+# ==========================
 # Testing and mypy
-.mypy_cache
-.pytest_cache
-.hypothesis
+# ==========================
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
 
-# Environment variables
-.env
-
+# ==========================
 # IDE / Editor configs
+# ==========================
 .vscode/
 .idea/
+*.code-workspace
 
+# ==========================
 # OS-specific files
+# ==========================
 .DS_Store
+Thumbs.db
 
-# Git folder (just in case)
-.git/
+# ==========================
+# Security and credentials
+# ==========================
+*.key
+*.pem
+*.crt
+
+# ⚠️ DO NOT ignore the .git folder itself
+# (Git uses it to track your repo)
+# .git/

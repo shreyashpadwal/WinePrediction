@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Any
 import logging
 from datetime import datetime
+import numpy as np  # added for type checks
 
 from ..utils.validators import (
     WineFeatures, 
@@ -17,11 +18,44 @@ from ..utils.validators import (
 from ..services.ml_service import get_ml_predictor, MLPredictor
 from ..services.gemini_service import get_gemini_service, GeminiService
 from ..utils.logger import get_logger
+from ..services.ml_service import run_model_and_get_raw
 
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter(prefix="/prediction", tags=["prediction"])
+
+
+def _find_transformer(predictor) -> tuple:
+    """
+    Try to find a transformer (scaler/preprocessor/pipeline) inside the predictor object.
+
+    Returns:
+        (transformer_obj, attribute_name) if found else (None, None)
+    """
+    candidate_names = ["scaler", "preprocessor", "pipeline", "transformer", "preprocess"]
+    for name in candidate_names:
+        obj = getattr(predictor, name, None)
+        if obj is not None:
+            if hasattr(obj, "transform"):
+                return obj, name
+            # if it's an ndarray, return it to let caller produce a better error
+            if isinstance(obj, np.ndarray):
+                return obj, name
+
+    # fallback: scan attributes for anything with a transform method
+    for attr in dir(predictor):
+        if attr.startswith("_"):
+            continue
+        try:
+            obj = getattr(predictor, attr)
+            if hasattr(obj, "transform"):
+                return obj, attr
+        except Exception:
+            continue
+
+    # nothing found
+    return None, None
 
 
 @router.post("/predict", response_model=PredictionResponse)
@@ -55,7 +89,34 @@ async def predict_wine_quality(
         if not is_valid:
             logger.warning(f"Invalid features provided: {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
-        
+
+        # Defensive check: ensure the predictor has a transformer with transform()
+        transformer, attr_name = _find_transformer(ml_predictor)
+        if transformer is None:
+            logger.error("No transformer (scaler/preprocessor/pipeline) found on ml_predictor. "
+                         "This typically means the scaler was not loaded or was accidentally saved as a numpy array.")
+            # Provide actionable message to user/dev
+            raise HTTPException(
+                status_code=500,
+                detail=("Server configuration error: preprocessor/scaler not found. "
+                        "Check that the scaler was saved with pickle/joblib and loaded correctly in ml_service.")
+            )
+
+        # If transformer exists but is ndarray, produce explicit error
+        if isinstance(transformer, np.ndarray):
+            logger.error("Transformer attribute '%s' is a numpy.ndarray (shape=%s). "
+                         "Expected a transformer object with a .transform() method (e.g., sklearn StandardScaler).",
+                         attr_name, getattr(transformer, "shape", "unknown"))
+            raise HTTPException(
+                status_code=500,
+                detail=(f"Server error: transformer '{attr_name}' is loaded as a numpy.ndarray. "
+                        "This happens when the transformer was saved incorrectly (e.g. using np.save). "
+                        "Re-save the scaler with pickle.dump or joblib.dump and restart the server.")
+            )
+
+        # Log the transformer info for debugging
+        logger.debug("Using transformer '%s' of type %s for preprocessing", attr_name, type(transformer))
+
         # Make prediction
         prediction_result = ml_predictor.predict(features_dict)
         logger.debug(f"Prediction result: {prediction_result}")
@@ -74,9 +135,10 @@ async def predict_wine_quality(
         
         # Create response
         response = PredictionResponse(
-            prediction=prediction_result["prediction"],
+            prediction=str(prediction_result["prediction"]),  # Always string
             confidence=prediction_result["confidence"],
             probability_good=prediction_result["probability_good"],
+            quality_label=prediction_result["quality_label"],
             gemini_insight=gemini_insight,
             timestamp=datetime.utcnow().isoformat() + "Z",
             model_used=prediction_result["model_used"]
@@ -96,6 +158,18 @@ async def predict_wine_quality(
     except Exception as e:
         logger.error(f"Error in prediction endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error during prediction: {str(e)}")
+
+
+@router.post("/debug-raw")
+async def prediction_debug_raw(wine_features: WineFeatures):
+    """Return raw model outputs for debugging (no Pydantic output validation)."""
+    try:
+        body = wine_features.dict()
+        result = run_model_and_get_raw(body)
+        return result
+    except Exception as e:
+        # Never raise - return error string for debugging
+        return {"error": str(e)}
 
 
 @router.post("/predict/compare", response_model=ComparisonResponse)
@@ -128,6 +202,27 @@ async def compare_models_prediction(
         if not is_valid:
             logger.warning(f"Invalid features provided: {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
+
+        # Defensive check: ensure the predictor has a transformer with transform()
+        transformer, attr_name = _find_transformer(ml_predictor)
+        if transformer is None:
+            logger.error("No transformer (scaler/preprocessor/pipeline) found on ml_predictor for comparison endpoint.")
+            raise HTTPException(
+                status_code=500,
+                detail=("Server configuration error: preprocessor/scaler not found for comparison endpoint. "
+                        "Check that the scaler was saved with pickle/joblib and loaded correctly in ml_service.")
+            )
+
+        if isinstance(transformer, np.ndarray):
+            logger.error("Transformer attribute '%s' is a numpy.ndarray (shape=%s) in comparison endpoint.",
+                         attr_name, getattr(transformer, "shape", "unknown"))
+            raise HTTPException(
+                status_code=500,
+                detail=(f"Server error: transformer '{attr_name}' is loaded as a numpy.ndarray for comparison endpoint. "
+                        "Re-save the scaler with pickle.dump or joblib.dump and restart the server.")
+            )
+
+        logger.debug("Using transformer '%s' of type %s for preprocessing (comparison endpoint)", attr_name, type(transformer))
         
         # Get predictions from all models
         all_predictions = ml_predictor.get_all_predictions(features_dict)

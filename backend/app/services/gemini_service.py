@@ -33,7 +33,7 @@ class GeminiService(LoggerMixin):
         Args:
             api_key: Gemini API key. If None, will try to get from environment.
         """
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")  # ← FIXED THIS LINE
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model = None
         self.is_available = False
         
@@ -50,7 +50,7 @@ class GeminiService(LoggerMixin):
         """Initialize Gemini API client."""
         try:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
             
             # Test the connection
             test_response = self.model.generate_content("Hello")
@@ -189,7 +189,6 @@ class GeminiService(LoggerMixin):
         
         prompt = f"""
         You are a wine expert analyzing wine quality based on chemical composition. 
-        
         Wine Features: {feature_desc}
         Predicted Quality: {prediction}
         Confidence: {confidence_percent}%
@@ -224,23 +223,27 @@ class GeminiService(LoggerMixin):
         """
         confidence_percent = int(confidence * 100)
         
-        # Analyze key features for fallback explanation
         acidity = wine_features.get('fixed_acidity', 0)
         alcohol = wine_features.get('alcohol', 0)
         ph = wine_features.get('ph', 0)
         
-        if prediction.lower() == 'good':
+        # Convert prediction to string if it's a float
+        pred_str = str(prediction)
+        is_good = False
+        try:
+            # Try to convert to float and compare
+            pred_float = float(pred_str)
+            is_good = pred_float >= 6.0
+        except ValueError:
+            # If it's already a string like 'good' or 'bad'
+            is_good = pred_str.lower() == 'good'
+        
+        if is_good:
             quality_desc = "high-quality"
-            if alcohol > 12:
-                alcohol_note = "good alcohol content"
-            else:
-                alcohol_note = "moderate alcohol content"
+            alcohol_note = "good alcohol content" if alcohol > 12 else "moderate alcohol content"
         else:
             quality_desc = "lower-quality"
-            if alcohol < 10:
-                alcohol_note = "low alcohol content"
-            else:
-                alcohol_note = "moderate alcohol content"
+            alcohol_note = "low alcohol content" if alcohol < 10 else "moderate alcohol content"
         
         explanation = (
             f"Based on the chemical analysis, this wine is predicted to be of {quality_desc} "
@@ -282,7 +285,6 @@ class GeminiService(LoggerMixin):
             }
         
         try:
-            # Test with a simple prompt
             test_response = self.model.generate_content("Say hello")
             if test_response and test_response.text:
                 return {
@@ -310,12 +312,6 @@ gemini_service = None
 
 
 def get_gemini_service() -> GeminiService:
-    """
-    Get the global Gemini service instance.
-    
-    Returns:
-        GeminiService instance
-    """
     global gemini_service
     if gemini_service is None:
         gemini_service = GeminiService()
@@ -323,12 +319,6 @@ def get_gemini_service() -> GeminiService:
 
 
 def initialize_gemini_service() -> bool:
-    """
-    Initialize the global Gemini service.
-    
-    Returns:
-        True if initialization successful, False otherwise
-    """
     try:
         global gemini_service
         gemini_service = GeminiService()

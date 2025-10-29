@@ -1,0 +1,23 @@
+{
+  "prediction": "Bad",
+  "quality_label": "Below Average",
+  "quality_score": 4,
+  "confidence": 0.94,
+  "model_used": "Best Model",
+  "timestamp": "2025-10-29T09:34:57.775171Z",
+  "gemini_insight": "Based on the chemical analysis, this wine is predicted to be of lower-quality with 94% confidence. The wine shows moderate alcohol content and typical acidity levels. Lower-Quality wines generally exhibit balanced chemical composition and are well-suited for consumption.",
+  "comparison": {
+    "all_models_results": [
+      {
+        "model_name": "Best Model",
+        "prediction": "Bad",
+        "confidence": 0.94,
+        "probability_good": 0.06
+      }
+    ],
+    "consensus": "Bad",
+    "agreement_count": 1,
+    "total_models": 1,
+    "timestamp": "2025-10-29T09:34:57.789760Z"
+  }
+}

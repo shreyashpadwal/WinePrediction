@@ -3,8 +3,9 @@ Pydantic models and validators for Wine Quality Prediction API.
 Provides input validation and response models with realistic wine chemistry ranges.
 """
 
-from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, validator
+from typing import Dict, List, Optional, Any, Union
+from pydantic import BaseModel, Field, validator, field_validator
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,61 @@ class WineFeatures(BaseModel):
         return v
 
     @validator('alcohol')
+    def validate_alcohol(cls, v):
+        """Validate alcohol content is within realistic wine range."""
+        if v < 8.0 or v > 16.0:
+            logger.warning(f"Alcohol content {v}% is outside typical wine range (8.0-16.0)")
+        return v
+
+class PredictionResponse(BaseModel):
+    """
+    Wine quality prediction response model.
+    """
+    prediction: str = Field(
+        ...,
+        description="Wine quality prediction (3-9 scale)",
+        examples=["7.5", "6.0"]
+    )
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Model confidence in prediction"
+    )
+    probability_good: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Probability of being good quality (>=6)"
+    )
+    quality_label: str = Field(
+        ...,
+        description="Quality category label"
+    )
+    gemini_insight: Optional[str] = Field(
+        default=None,
+        description="AI-generated explanation of the prediction"
+    )
+    timestamp: str = Field(
+        ...,
+        description="Timestamp of prediction"
+    )
+    model_used: str = Field(
+        ...,
+        description="Name of the model used for prediction"
+    )
+
+    @classmethod
+    def get_example(cls) -> dict:
+        return {
+            "prediction": "7.5",
+            "confidence": 0.95,
+            "probability_good": 0.85,
+            "quality_label": "Above Average",
+            "gemini_insight": "This wine shows promising characteristics...",
+            "timestamp": "2025-10-29T15:40:14Z",
+            "model_used": "Random Forest"
+        }
     def validate_alcohol_content(cls, v):
         """Validate alcohol content is realistic for wine."""
         if v < 8.0 or v > 16.0:
